@@ -1,21 +1,23 @@
 #!/bin/bash
-# build.sh
+
+set -e
 
 
-WORK_DIR=$(pwd)/work
-OUTPUT_DIR=$(pwd)/output
 
-OUTPUT_ROOTFS_DIR=$OUTPUT_DIR/rootfs
-OUTPUT_UBOOT_DIR=$OUTPUT_DIR/uboot
-OUTPUT_KERNEL_DIR=$OUTPUT_DIR/kernel
-OUTPUT_IMAGE_DIR=$OUTPUT_DIR/images
+# Variablen
+WORKDIR=$(pwd)/work
+BUILDROOT_DIR=$WORKDIR/buildroot
+ROOTFS_TAR="rootfs.tar"
+ROOTFS_DIR="/mnt/rootfs"
+OUTPUT_DIR=$(pwd)/output/rootfs
 
 BUILDROOT_DIR="$WORKDIR/buildroot"
 UBOOT_DIR="$WORKDIR/u-boot"
 LINUX_DIR="$WORKDIR/linux"
 
-IMAGE_NAME="rpi5_bootable_image.img"
+OUTPUT_DIR=$(pwd)/output
 
+IMAGE_NAME="rpi5_bootable_image.img"
 
 MOUNT_DIR="mnt"
 ROOTFS_DIR="$OUTPUT_DIR/target"
@@ -26,20 +28,18 @@ BOOT_DIR="$MOUNT_DIR/boot"
 ROOT_DIR="$MOUNT_DIR/rootfs"
 
 IMAGE_FILE="sdcard.img"
-IMAGE_SIZE=4G  
+IMAGE_SIZE=4G  # Größe des Images für RPi 5 angepasst
 LOOP_DEV=""
 MOUNT_DIR=$(mktemp -d)
 CROSS_COMPILE="aarch64-linux-gnu-"
 
-
-
-
+# Farben für die Ausgabe
 echo_success() { echo -e "\e[32m[SUCCESS]\e[0m $1"; }
 echo_warning() { echo -e "\e[33m[WARNING]\e[0m $1"; }
 echo_error() { echo -e "\e[31m[ERROR]\e[0m $1"; }
 echo_info() { echo -e "\e[34m[INFO]\e[0m $1"; }
 
-
+# Prüfe Root-Rechte
 if [[ $EUID -ne 0 ]]; then
     echo_error "Dieses Skript muss als root ausgeführt werden!"
     exec sudo "$0" "$@"
@@ -47,205 +47,59 @@ fi
 
 
 
-buildroot_menu() {
-  choice=$(dialog --menu "Wähle eine Option für Buildroot" 15 50 4 \
-    1 "Raspberry Pi 4" \
-    2 "Raspberry Pi 5" \
-    3 "Zurück" \
-    4 "Beenden" \
-    2>&1 >/dev/tty)
-
-  case $choice in
-    1)
-      echo "Du hast Raspberry Pi 4 für Buildroot ausgewählt."
-      make_buildroot raspberrypi4b_defconfig
-      ;;
-    2)
-      echo "Du hast Raspberry Pi 5 für Buildroot ausgewählt."
-      make_buildroot raspberrypi5_defconfig
-      ;;
-    3)
-      return
-      ;;
-    4)
-      exit 0
-      ;;
-    *)
-      echo "Ungültige Option."
-      ;;
-  esac
-}
-
-kernel_menu() {
-  choice=$(dialog --menu "Wähle eine Option für den Linux Kernel" 15 50 4 \
-    1 "Raspberry Pi 4" \
-    2 "Raspberry Pi 5" \
-    3 "Zurück" \
-    4 "Beenden" \
-    2>&1 >/dev/tty)
-
-  case $choice in
-    1)
-      echo "Du hast Raspberry Pi 4 für den Linux Kernel ausgewählt."
-      make rpi_4_defconfig
-      ;;
-    2)
-      echo "Du hast Raspberry Pi 5 für den Linux Kernel ausgewählt."
-      make_kernel bcm2712_defconfig
-      ;;
-    3)
-      return
-      ;;
-    4)
-      exit 0
-      ;;
-    *)
-      echo "Ungültige Option."
-      ;;
-  esac
-}
-
-uboot_menu() {
-  choice=$(dialog --menu "Wähle eine Option für U-Boot" 15 50 4 \
-    1 "Raspberry Pi 4" \
-    2 "Raspberry Pi 5" \
-    3 "Zurück" \
-    4 "Beenden" \
-    2>&1 >/dev/tty)
-
-  case $choice in
-    1)
-      echo "Du hast Raspberry Pi 4 für U-Boot ausgewählt."
-      make_u_boot rpi_4_defconfig;
-      ;;
-    2)
-      echo "Du hast Raspberry Pi 5 für U-Boot ausgewählt."
-      make_u_boot rpi_arm64_defconfig
-      ;;
-    3)
-      return
-      ;;
-    4)
-      exit 0
-      ;;
-    *)
-      echo "Ungültige Option."
-      ;;
-  esac
-}
-
-main_menu() {
-  while true; do
-    choice=$(dialog --menu "Hauptmenü" 15 50 5 \
-      1 "Buildroot" \
-      2 "Linux Kernel" \
-      3 "U-Boot" \
-      4 "Build Image" \
-      5 "Beenden" \
-      2>&1 >/dev/tty)
-
-    case $choice in
-      1)
-        buildroot_menu
-        ;;
-      2)
-        kernel_menu
-        ;;
-      3)
-        uboot_menu
-        ;;
-      4)
-        echo "Du hast 'Build Image' ausgewählt."
-        make_image;
-        ;;
-      5)
-        exit 0
-        ;;
-      *)
-        echo "Ungültige Option."
-        ;;
-    esac
-  done
-}
-
-
-
-
-
-
 make_buildroot() {
-    if [ -z "$1" ]; then
-        echo_error "Fehler: Keine Konfiguration angegeben!"
-        echo_info "Verwendung: buildroot <config_name>"
-        exit 1
-    fi
-
-    CONFIG_NAME=$1 
-
+    # Step 1: Buildroot
     echo_info "Erstelle Root-Dateisystem mit Buildroot..."
     if [ ! -d "$BUILDROOT_DIR"]; then
         git clone https://github.com/raspberry-pi-firmware-building-org/buildroot "$BUILDROOT_DIR"
     fi
-
     cd $BUILDROOT_DIR
-
+    # Wenn noch keine Konfiguration vorhanden ist, auf die Standardkonfiguration setzen
     if [ ! -f ".config" ]; then
-        make $CONFIG_NAME 
+        make raspberrypi5_defconfig
     fi
-
+    # Build starten
     make
 }
 
+
+
 make_u_boot() {
-    if [ -z "$1" ]; then
-        echo_error "Fehler: Keine Konfiguration angegeben!"
-        echo_info "Verwendung: make_u_boot <config_name>"
-        exit 1
-    fi
-
-    CONFIG_NAME=$1  
-
-    echo_info "Step 2: Building U-Boot mit Konfiguration $CONFIG_NAME..."
+    # Step 2: U-Boot
+    echo "Step 2: Building U-Boot..."
     if [ ! -d "$UBOOT_DIR" ]; then
         git clone https://source.denx.de/u-boot/u-boot.git "$UBOOT_DIR"
     fi
 
     cd $UBOOT_DIR
-
-    make $CONFIG_NAME  
-
+    # U-Boot für Raspberry Pi 5 konfigurieren
+    make rpi_5_defconfig
+    # U-Boot bauen
     make
 
+    # Prüfen, ob die benötigten Dateien erstellt wurden
     if [ ! -f "u-boot.bin" ] || [ ! -f "u-boot.img" ]; then
         echo "Fehler: U-Boot konnte nicht erfolgreich kompiliert werden!"
         exit 1
     fi
 
+    # Notwendige Dateien in den Zielordner verschieben
     cp u-boot.bin "$OUTPUT_DIR/"
     cp u-boot.img "$OUTPUT_DIR/"
-    cp -r board/raspberrypi "$OUTPUT_DIR/"  
+    cp -r board/raspberrypi "$OUTPUT_DIR/"  # Falls weitere Bootdateien benötigt werden
 
     echo "✅ U-Boot erfolgreich kompiliert und nach $OUTPUT_DIR verschoben!"
     cd -
 }
 
 make_kernel() {
-    if [ -z "$1" ]; then
-        echo_error "Fehler: Keine Konfiguration angegeben!"
-        echo_info "Verwendung: make_u_boot <config_name>"
-        exit 1
-    fi
-
-    CONFIG_NAME=$1  
-
+    # Schritt 2: Baue den Linux-Kernel für Raspberry Pi 5
     echo_info "[2/9] Baue den Linux-Kernel für Raspberry Pi 5..."
-
+    # CD Into Kernel Dir
     cd $LINUX_DIR
-    
-    make $CONFIG_NAME  
-
+    # Configuring
+    make bcm2712_defconfig  # BCM2712 ist der Chip des RPi 5
     make -j$(nproc) Image dtbs modules
-
     if [ ! -f "arch/arm64/boot/Image" ]; then
         echo_error "Fehler: Linux-Kernel Image wurde nicht erstellt!"
         exit 1
@@ -253,6 +107,7 @@ make_kernel() {
     echo_success "Linux-Kernel erfolgreich erstellt."
     cd -
 }
+
 
 make_image() {
     # Schritt 4: Erstelle ein leeres Image
@@ -310,13 +165,10 @@ make_image() {
 
 
 initialize() {
-
-    main_menu;
-
-    # make_u_boot;
-    # make_kernel;
-    # make_rootfs;
-    # make_image;
+    make_u_boot;
+    make_kernel;
+    make_rootfs;
+    make_image;
 }
 
 initialize;
